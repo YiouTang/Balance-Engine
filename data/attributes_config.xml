@@ -1,0 +1,17 @@
+<attributes>
+    <base_attributes>
+        <attribute name="attack" display_name="攻击力" default_value="10" min_value="1" max_value="9999" description="角色的基本攻击能力，影响造成的伤害"/>
+        <attribute name="defense" display_name="防御力" default_value="5" min_value="0" max_value="9999" description="角色的基本防御能力，减少受到的伤害"/>
+        <attribute name="health" display_name="生命值" default_value="100" min_value="1" max_value="99999" description="角色的生命值，降至0时角色死亡"/>
+        <attribute name="crit" display_name="暴击值" default_value="5" min_value="0" max_value="100" description="增加暴击概率的属性"/>
+        <attribute name="crit_resist" display_name="暴抗值" default_value="5" min_value="0" max_value="100" description="减少被暴击概率的属性"/>
+    </base_attributes>
+    <custom_attributes>
+        <attribute name="health_regen" display_name="生命值恢复" default_value="2" min_value="0" max_value="100" description="每个回合自动恢复的生命值"/>
+        <attribute name="damage_boost" display_name="伤害加成" default_value="0" min_value="0" max_value="100" description="增加造成的最终伤害百分比"/>
+        <attribute name="damage_reduction" display_name="伤害减免" default_value="0" min_value="0" max_value="100" description="减少受到的最终伤害百分比"/>
+        <attribute name="agility" display_name="敏捷" default_value="10" min_value="1" max_value="9999" description="影响攻击速度和回避率的属性"/>
+        <attribute name="accuracy" display_name="命中" default_value="95" min_value="0" max_value="100" description="影响攻击命中目标的概率"/>
+        <attribute name="evasion" display_name="闪避" default_value="5" min_value="0" max_value="100" description="影响闪避敌人攻击的概率"/>
+    </custom_attributes>
+</attributes>
