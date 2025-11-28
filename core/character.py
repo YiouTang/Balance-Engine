@@ -24,7 +24,7 @@ class Character:
         
         # 尝试加载属性配置中的默认值
         try:
-            from data.xml_handler import get_attribute_config
+            from data.sqlite_handler import get_attribute_config
             config = get_attribute_config()
             
             # 设置基础属性的默认值
@@ -124,6 +124,87 @@ class Character:
         包含所有属性的字典
         """
         return self.attributes.copy()
+    
+    def recalculate_attributes(self):
+        """
+        根据等级和成长曲线重新计算所有属性值
+        """
+        from utils.growth_curve import (
+            linear_growth, exponential_growth, logarithmic_growth,
+            power_growth, sigmoid_growth, hybrid_growth
+        )
+        from utils.attribute_calculator import get_attribute_curve_params
+        
+        # 成长曲线函数映射
+        curve_functions = {
+            "linear": linear_growth,
+            "exponential": exponential_growth,
+            "logarithmic": logarithmic_growth,
+            "power": power_growth,
+            "sigmoid": sigmoid_growth,
+            "hybrid": hybrid_growth
+        }
+        
+        # 各属性的基础值和系数
+        base_values = {
+            'attack': 1.2,
+            'defense': 0.8,
+            'health': 5.0,
+            'crit': 0.3,
+            'crit_resist': 0.2
+        }
+        
+        # 每个成长曲线函数支持的参数
+        curve_params_map = {
+            "linear": ["coefficient"],
+            "exponential": ["exponent"],
+            "logarithmic": ["base"],
+            "power": ["exponent", "scaling"],
+            "sigmoid": ["midpoint", "steepness"],
+            "hybrid": ["early_coef", "late_coef", "transition_level"]
+        }
+        
+        # 遍历所有属性，重新计算属性值
+        for attr_name in self.attributes.keys():
+            # 获取属性的成长曲线信息
+            curve_type, curve_params = self.get_attribute_curve_info(attr_name)
+            
+            # 获取属性的基础系数
+            base_coef = base_values.get(attr_name, 1.0)
+            
+            # 获取属性的曲线参数
+            attr_params = get_attribute_curve_params(attr_name, self.growth_curve_params)
+            
+            # 合并参数
+            merged_params = {**attr_params, **curve_params}
+            
+            # 选择成长曲线函数
+            growth_function = curve_functions.get(curve_type, linear_growth)
+            
+            # 过滤出当前成长曲线函数支持的参数
+            supported_params = curve_params_map.get(curve_type, [])
+            filtered_params = {}
+            for key, value in merged_params.items():
+                if key in supported_params:
+                    filtered_params[key] = value
+            
+            # 计算基础值
+            base_value = 10  # 基础倍率
+            
+            # 应用成长曲线计算属性值
+            try:
+                value = growth_function(self.level, base_value, **filtered_params) * base_coef
+            except Exception as e:
+                # 如果计算出错，使用线性成长作为 fallback
+                print(f"[错误] 计算属性 {attr_name} 的值时出错: {e}，使用线性成长作为 fallback")
+                value = linear_growth(self.level, base_value, **filtered_params) * base_coef
+            
+            # 为暴击和暴击抗性设置上限值（最大100）
+            if attr_name in ['crit', 'crit_resist']:
+                value = min(value, 100)  # 确保不超过100
+            
+            # 更新属性值
+            self.attributes[attr_name] = int(value)
     
     def __str__(self):
         return f"角色: {self.name} (ID: {self.id}, 等级: {self.level})"

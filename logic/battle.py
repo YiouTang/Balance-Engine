@@ -1,14 +1,14 @@
 # 战斗模拟模块
 from core.damage import calculate_damage, calculate_critical_rate
-from data.xml_handler import load_character_from_xml
+from data.sqlite_handler import load_character
 import copy
 
-def battle_between_characters(xml_file, attacker_id, defender_id, simulate_count=1):
+def battle_between_characters(db_path, attacker_id, defender_id, simulate_count=1):
     """
     模拟两个角色之间的战斗
     
     参数:
-    xml_file: XML文件路径
+    db_path: 数据库文件路径
     attacker_id: 攻击方角色ID
     defender_id: 防御方角色ID
     simulate_count: 模拟战斗次数
@@ -17,8 +17,8 @@ def battle_between_characters(xml_file, attacker_id, defender_id, simulate_count
     战斗结果统计字典
     """
     # 加载角色
-    attacker = load_character_from_xml(xml_file, character_id=attacker_id)
-    defender = load_character_from_xml(xml_file, character_id=defender_id)
+    attacker = load_character(character_id=attacker_id, db_path=db_path)
+    defender = load_character(character_id=defender_id, db_path=db_path)
     
     if not attacker or not defender:
         print("无法加载角色信息，战斗取消")
@@ -86,12 +86,12 @@ def battle_between_characters(xml_file, attacker_id, defender_id, simulate_count
         'battle_results': battle_results
     }
 
-def fight_to_the_death(xml_file, attacker_id, defender_id, max_rounds=1000):
+def fight_to_the_death(db_path, attacker_id, defender_id, max_rounds=1000):
     """
     模拟两个角色之间的死斗，直到一方生命值降为0或以下
     
     参数:
-    xml_file: XML文件路径
+    db_path: 数据库文件路径
     attacker_id: 攻击方角色ID
     defender_id: 防御方角色ID
     max_rounds: 最大回合数，防止无限循环
@@ -100,8 +100,8 @@ def fight_to_the_death(xml_file, attacker_id, defender_id, max_rounds=1000):
     战斗结果字典
     """
     # 加载角色，不使用深拷贝，而是直接获取字典数据
-    attacker = load_character_from_xml(xml_file, character_id=attacker_id)
-    defender = load_character_from_xml(xml_file, character_id=defender_id)
+    attacker = load_character(character_id=attacker_id, db_path=db_path)
+    defender = load_character(character_id=defender_id, db_path=db_path)
     
     if not attacker or not defender:
         print("无法加载角色信息，战斗取消")

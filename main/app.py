@@ -1,7 +1,7 @@
 # 程序主入口
 import os
 import math
-from data.xml_handler import load_character_from_xml, load_all_characters
+from data.sqlite_handler import load_character, load_all_characters, init_db
 from logic.character_manager import add_character, generate_random_character, batch_generate_characters, list_characters as list_all_characters, get_all_available_attributes, get_attribute_display_name, get_attribute_description
 from logic.battle import battle_between_characters
 from utils.attribute_calculator import generate_level_attributes
@@ -9,8 +9,11 @@ from utils.chart_generator import plot_attribute_growth
 from ui.menu import menu, character_menu, battle_menu, analysis_menu, get_valid_input
 from core.damage import calculate_damage, calculate_critical_rate
 
-# XML文件路径
-XML_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "characters.xml")
+# 数据库文件路径
+DB_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "game_data.db")
+
+# 初始化数据库
+init_db()
 
 # 在文件顶部导入成长曲线相关模块
 from utils.growth_curve import linear_growth, exponential_growth, logarithmic_growth, power_growth, sigmoid_growth, hybrid_growth
@@ -165,7 +168,7 @@ def handle_character_menu():
             
             # 添加角色，使用关键字参数传递所有属性
             add_character(
-                XML_FILE, 
+                DB_FILE, 
                 name, 
                 level=level, 
                 char_id=char_id,
@@ -216,7 +219,7 @@ def handle_character_menu():
                 attr_growth_curves = get_attribute_specific_curves()
             
             # 使用选定的成长曲线生成角色
-            generate_random_character(XML_FILE, name, level, curve_type, curve_params, attr_growth_curves)
+            generate_random_character(DB_FILE, name, level, curve_type, curve_params, attr_growth_curves)
         
         elif choice == 3:
             print("\n--- 批量生成随机角色 ---\n")
@@ -256,16 +259,16 @@ def handle_character_menu():
                 attr_growth_curves = get_attribute_specific_curves()
             
             # 使用选定的成长曲线批量生成角色
-            batch_generate_characters(XML_FILE, count, start_level, name_prefix, curve_type, curve_params, attr_growth_curves)
+            batch_generate_characters(DB_FILE, count, start_level, name_prefix, curve_type, curve_params, attr_growth_curves)
         
         elif choice == 4:
-            list_all_characters(XML_FILE)
+            list_all_characters(DB_FILE)
             
             # 询问是否查看特定角色详情
             show_detail = input("\n是否查看特定角色详情? (y/n): ").lower()
             if show_detail == 'y':
                 char_id = get_valid_input("请输入角色ID: ", int, None, 1, None)
-                character = load_character_from_xml(XML_FILE, character_id=char_id)
+                character = load_character(character_id=char_id, db_path=DB_FILE)
                 if character:
                     display_character_info(character)
                 else:
@@ -277,7 +280,7 @@ def handle_character_menu():
             char_id = get_valid_input("请输入角色ID: ", int, None, 1, None)
             
             # 先加载角色，查看当前属性
-            character = load_character_from_xml(XML_FILE, character_id=char_id)
+            character = load_character(character_id=char_id, db_path=DB_FILE)
             if not character:
                 print("找不到该角色")
                 continue
@@ -384,14 +387,14 @@ def handle_battle_menu():
             break
         
         # 先列出所有角色供用户选择
-        list_all_characters(XML_FILE)
+        list_all_characters(DB_FILE)
         
         if choice == 1:
             print("\n--- 单场战斗 ---\n")
             attacker_id = get_valid_input("请输入攻击方角色ID: ", int, None, 1, None)
             defender_id = get_valid_input("请输入防御方角色ID: ", int, None, 1, None)
             
-            result = battle_between_characters(XML_FILE, attacker_id, defender_id)
+            result = battle_between_characters(DB_FILE, attacker_id, defender_id)
             if result:
                 print(f"\n{result['attacker']['name']} 攻击 {result['defender']['name']}")
                 print(f"伤害: {result['battle_results'][0]['damage']}, 暴击: {result['battle_results'][0]['is_crit']}")
@@ -402,7 +405,7 @@ def handle_battle_menu():
             defender_id = get_valid_input("请输入防御方角色ID: ", int, None, 1, None)
             simulate_count = get_valid_input("请输入模拟战斗次数: ", int, 1000, 1, 10000)
             
-            result = battle_between_characters(XML_FILE, attacker_id, defender_id, simulate_count)
+            result = battle_between_characters(DB_FILE, attacker_id, defender_id, simulate_count)
             if result:
                 print(f"\n{result['attacker']['name']} 攻击 {result['defender']['name']} ({result['simulate_count']}次)")
                 print(f"平均伤害: {result['average_damage']:.2f}")
@@ -416,7 +419,7 @@ def handle_battle_menu():
             
             # 需要导入fight_to_the_death函数
             from logic.battle import fight_to_the_death
-            result = fight_to_the_death(XML_FILE, attacker_id, defender_id)
+            result = fight_to_the_death(DB_FILE, attacker_id, defender_id)
             
             if result:
                 print(f"\n死斗结果:")
@@ -461,17 +464,17 @@ def handle_analysis_menu():
             
             if use_existing == 'y' or use_existing == '':
                 # 先列出所有角色供用户选择
-                list_all_characters(XML_FILE)
+                list_all_characters(DB_FILE)
                 
                 # 询问用户是通过ID还是名称选择角色
                 selection_method = input("请选择角色的方式 (1: 通过ID, 2: 通过名称，默认1): ").strip() or '1'
                 
                 if selection_method == '1':
                     char_id = get_valid_input("请输入角色ID: ", int, None, 1, None)
-                    character = load_character_from_xml(XML_FILE, character_id=char_id)
+                    character = load_character(character_id=char_id, db_path=DB_FILE)
                 else:
                     char_name = input("请输入角色名称: ").strip()
-                    character = load_character_from_xml(XML_FILE, character_name=char_name)
+                    character = load_character(character_name=char_name, db_path=DB_FILE)
                 
                 if character:
                     print(f"为角色 '{character.name}' 生成1-100级属性曲线图... (使用{character.growth_curve_type}成长曲线)")

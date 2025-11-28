@@ -121,12 +121,12 @@ def generate_level_attributes(name, level_range=range(1, 101), curve_type="linea
         curve_type = character.growth_curve_type
         curve_params = character.growth_curve_params
     
+    # 获取默认参数
+    default_params = get_default_curve_params()
+    
     # 默认曲线参数
     if curve_params is None:
         curve_params = {}
-        # 为每个属性设置默认参数
-        for attr in ['attack', 'defense', 'health', 'crit', 'crit_resist']:
-            curve_params[attr] = get_default_curve_params(curve_type)
     
     # 选择成长曲线函数
     curve_functions = {
@@ -138,18 +138,25 @@ def generate_level_attributes(name, level_range=range(1, 101), curve_type="linea
         "hybrid": hybrid_growth
     }
     
+    # 获取所有属性列表
+    all_attributes = []
+    if character is not None:
+        # 从角色对象获取所有属性
+        all_attributes = list(character.get_all_attributes().keys())
+    else:
+        # 使用默认属性列表
+        all_attributes = ['attack', 'defense', 'health', 'crit', 'crit_resist']
+    
     # 创建属性字典
     attributes = {
-        'level': list(level_range),
-        'attack': [],
-        'defense': [],
-        'health': [],
-        'crit': [],
-        'crit_resist': []
+        'level': list(level_range)
     }
+    # 为每个属性初始化空列表
+    for attr in all_attributes:
+        attributes[attr] = []
     
-    # 各属性的基础值和系数
-    base_values = {
+    # 各属性的基础值和系数（默认值）
+    default_base_values = {
         'attack': 1.2,
         'defense': 0.8,
         'health': 5.0,
@@ -160,10 +167,13 @@ def generate_level_attributes(name, level_range=range(1, 101), curve_type="linea
     # 为每个等级计算属性值
     for level in level_range:
         # 根据不同属性应用不同的成长曲线
-        for attr, base_coef in base_values.items():
-            # 如果有角色对象，获取该属性特定的曲线类型和参数
+        for attr in all_attributes:
+            # 获取属性的基础系数
+            base_coef = default_base_values.get(attr, 1.0)  # 默认系数为1.0
+            
+            # 获取该属性的曲线类型和参数
             attr_curve_type = curve_type
-            attr_params = curve_params.get(attr, {})
+            attr_params = curve_params.get(attr, default_params.get(attr, default_params['_default']))
             
             if character is not None:
                 attr_curve_type, attr_params = character.get_attribute_curve_info(attr)
@@ -175,6 +185,11 @@ def generate_level_attributes(name, level_range=range(1, 101), curve_type="linea
             base_value = 10  # 基础倍率
             # 应用成长曲线
             value = growth_function(level, base_value, **attr_params) * base_coef
+            
+            # 为暴击和暴击抗性设置上限值（最大100）
+            if attr in ['crit', 'crit_resist']:
+                value = min(value, 100)  # 确保不超过100
+            
             # 保存结果
             attributes[attr].append(int(value))
     

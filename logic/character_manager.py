@@ -1,31 +1,21 @@
 # 角色管理模块
 import random
 from core.character import Character
-from data.xml_handler import save_character_to_xml, get_next_available_id, load_character_from_xml, load_all_characters, get_all_attribute_names, get_attribute_info
+from data.sqlite_handler import save_character, get_next_available_id, load_character, load_all_characters, get_all_attribute_names, get_attribute_info
 from utils.growth_curve import (
     linear_growth, exponential_growth, logarithmic_growth,
     power_growth, sigmoid_growth, hybrid_growth
 )
 
 # 修改 add_character 函数，支持动态属性
-def add_character(xml_file, name, level=1, char_id=None, 
+def add_character(db_path, name, level=1, char_id=None, 
                  growth_curve_type="linear", growth_curve_params=None, attr_growth_curves=None, **kwargs):
     """
-    向XML文件添加一个新角色，支持动态属性
+    向数据库添加一个新角色，支持动态属性
     """
-    # 如果没有提供ID，需要先加载XML获取下一个可用ID
+    # 如果没有提供ID，获取下一个可用ID
     if char_id is None:
-        import xml.etree.ElementTree as ET
-        import os
-        if not os.path.exists(xml_file) or os.path.getsize(xml_file) == 0:
-            char_id = 1
-        else:
-            try:
-                tree = ET.parse(xml_file)
-                root = tree.getroot()
-                char_id = get_next_available_id(root)
-            except Exception:
-                char_id = 1
+        char_id = get_next_available_id(db_path)
     
     # 创建角色对象，传递所有属性参数
     character = Character(
@@ -38,8 +28,8 @@ def add_character(xml_file, name, level=1, char_id=None,
         **kwargs
     )
     
-    # 保存到XML
-    result = save_character_to_xml(xml_file, character)
+    # 保存到数据库
+    result = save_character(character, db_path)
     if result:
         # 打印所有设置的属性
         print(f"角色创建成功 - ID: {char_id}, 名称: {name}, 等级: {level}")
@@ -109,7 +99,7 @@ def get_attribute_description(attribute_name):
     return ''
 
 # 修改 generate_random_character 函数，支持动态属性和成长曲线信息
-def generate_random_character(xml_file, name=None, level=1, curve_type="linear", curve_params=None, attr_growth_curves=None):
+def generate_random_character(db_path, name=None, level=1, curve_type="linear", curve_params=None, attr_growth_curves=None):
     """
     生成一个随机属性的角色，支持不同的成长曲线和动态属性
     """
@@ -196,7 +186,7 @@ def generate_random_character(xml_file, name=None, level=1, curve_type="linear",
     
     # 添加角色，使用关键字参数传递所有属性
     return add_character(
-        xml_file, 
+        db_path, 
         name, 
         level=level,
         growth_curve_type=curve_type,
@@ -205,13 +195,13 @@ def generate_random_character(xml_file, name=None, level=1, curve_type="linear",
         **calculated_attributes
     )
 
-def batch_generate_characters(xml_file, count=5, start_level=1, name_prefix="随机角色", 
+def batch_generate_characters(db_path, count=5, start_level=1, name_prefix="随机角色", 
                              curve_type="linear", curve_params=None, attr_growth_curves=None):
     """
     批量生成随机角色
     
     参数:
-    xml_file: XML文件路径
+    db_path: 数据库文件路径
     count: 生成角色数量
     start_level: 起始等级
     name_prefix: 名称前缀
@@ -225,23 +215,23 @@ def batch_generate_characters(xml_file, count=5, start_level=1, name_prefix="随
     for i in range(count):
         level = start_level + i  # 每个角色等级递增
         name = f"{name_prefix}{i+1}"
-        if generate_random_character(xml_file, name, level, curve_type, curve_params, attr_growth_curves):
+        if generate_random_character(db_path, name, level, curve_type, curve_params, attr_growth_curves):
             success_count += 1
     
     print(f"\n批量生成完成: 成功生成 {success_count}/{count} 个角色")
     return success_count
 
-def list_characters(xml_file):
+def list_characters(db_path):
     """
-    列出XML文件中的所有角色，支持显示动态属性
+    列出数据库中的所有角色，支持显示动态属性
     """
-    characters = load_all_characters(xml_file)
+    characters = load_all_characters(db_path)
     
     if len(characters) == 0:
         print("没有找到角色")
         return
     
-    print(f"\nXML文件中的角色列表 ({len(characters)} 个):")
+    print(f"\n数据库中的角色列表 ({len(characters)} 个):")
     print("-" * 80)
     
     # 显示基本信息
