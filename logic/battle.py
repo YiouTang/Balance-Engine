@@ -2,6 +2,7 @@
 from core.damage import calculate_damage, calculate_critical_rate
 from data.sqlite_handler import load_character
 import copy
+import random
 
 def battle_between_characters(db_path, attacker_id, defender_id, simulate_count=1):
     """
@@ -31,6 +32,7 @@ def battle_between_characters(db_path, attacker_id, defender_id, simulate_count=
     # 模拟战斗
     total_damage = 0
     crit_count = 0
+    hit_count = 0
     battle_results = []
     
     for i in range(simulate_count):
@@ -43,38 +45,53 @@ def battle_between_characters(db_path, attacker_id, defender_id, simulate_count=
         defender_level = defender_attrs.get('level', 1)
         
         # 计算伤害
-        damage, is_crit = calculate_damage(
+        damage_info = calculate_damage(
             attack,
             defense,
             crit,
             crit_resist,
             attacker_level=attacker_level,
-            defender_level=defender_level
+            defender_level=defender_level,
+            attacker_attributes=attacker_attrs,
+            defender_attributes=defender_attrs
         )
         
-        # 应用自定义属性效果
-        if 'damage_boost' in attacker_attrs:
-            damage = int(damage * (1 + attacker_attrs['damage_boost'] / 100))
+        # 获取最终伤害和暴击信息
+        damage = damage_info['final_damage']
+        is_crit = damage_info['is_critical']
+        is_hit = damage_info['is_hit']
         
-        if 'damage_reduction' in defender_attrs:
-            damage = int(damage * (1 - defender_attrs['damage_reduction'] / 100))
+        # 转换为整数伤害
+        damage = int(damage)
         
         total_damage += damage
         if is_crit:
             crit_count += 1
+        if is_hit:
+            hit_count += 1
         
-        battle_results.append({
+        # 构建战斗结果，包含所有伤害计算信息
+        battle_result = {
             'damage': damage,
             'is_crit': is_crit,
+            'is_hit': is_hit,
             'custom_effects_applied': {
                 'damage_boost': attacker_attrs.get('damage_boost', 0),
-                'damage_reduction': defender_attrs.get('damage_reduction', 0)
+                'damage_reduction': defender_attrs.get('damage_reduction', 0),
+                'accuracy': attacker_attrs.get('accuracy', 0),
+                'evasion': defender_attrs.get('evasion', 0)
             }
-        })
+        }
+        
+        # 添加详细的伤害计算信息
+        battle_result.update(damage_info)
+        
+        battle_results.append(battle_result)
     
     # 计算统计信息
     avg_damage = total_damage / simulate_count
     actual_crit_rate = crit_count / simulate_count
+    actual_hit_rate = hit_count / simulate_count
     
     return {
         'attacker': attacker_attrs,
@@ -82,6 +99,7 @@ def battle_between_characters(db_path, attacker_id, defender_id, simulate_count=
         'simulate_count': simulate_count,
         'average_damage': avg_damage,
         'actual_crit_rate': actual_crit_rate,
+        'actual_hit_rate': actual_hit_rate,
         'expected_crit_rate': calculate_critical_rate(attacker_attrs.get('crit', 0), attacker_attrs.get('crit_resist', 0)),
         'battle_results': battle_results
     }
@@ -114,6 +132,8 @@ def fight_to_the_death(db_path, attacker_id, defender_id, max_rounds=1000):
     # 确保必要的属性存在
     attacker_props.setdefault('health', 100)
     defender_props.setdefault('health', 100)
+    attacker_props.setdefault('max_health', attacker_props['health'])
+    defender_props.setdefault('max_health', defender_props['health'])
     attacker_props.setdefault('attack', 10)
     defender_props.setdefault('attack', 10)
     attacker_props.setdefault('defense', 5)
@@ -124,6 +144,18 @@ def fight_to_the_death(db_path, attacker_id, defender_id, max_rounds=1000):
     defender_props.setdefault('crit_resist', 0)
     attacker_props.setdefault('level', 1)
     defender_props.setdefault('level', 1)
+    attacker_props.setdefault('agility', 10)
+    defender_props.setdefault('agility', 10)
+    attacker_props.setdefault('accuracy', 0)
+    defender_props.setdefault('accuracy', 0)
+    attacker_props.setdefault('evasion', 0)
+    defender_props.setdefault('evasion', 0)
+    attacker_props.setdefault('damage_boost', 0)
+    defender_props.setdefault('damage_boost', 0)
+    attacker_props.setdefault('damage_reduction', 0)
+    defender_props.setdefault('damage_reduction', 0)
+    attacker_props.setdefault('health_regen', 0)
+    defender_props.setdefault('health_regen', 0)
     
     # 创建角色战斗副本，使用字典存储属性
     attacker_battle = attacker_props.copy()
@@ -135,13 +167,9 @@ def fight_to_the_death(db_path, attacker_id, defender_id, max_rounds=1000):
     total_defender_damage = 0
     attacker_crit_count = 0
     defender_crit_count = 0
+    attacker_hit_count = 0
+    defender_hit_count = 0
     round_history = []
-    
-    # 初始化生命值（如果不存在，则使用默认值）
-    if 'health' not in attacker_battle:
-        attacker_battle['health'] = attacker_battle.get('max_health', 100)
-    if 'health' not in defender_battle:
-        defender_battle['health'] = defender_battle.get('max_health', 100)
     
     # 战斗循环
     while attacker_battle['health'] > 0 and defender_battle['health'] > 0 and rounds < max_rounds:
@@ -150,80 +178,115 @@ def fight_to_the_death(db_path, attacker_id, defender_id, max_rounds=1000):
         # 记录当前回合信息
         round_data = {
             'round': rounds,
+            'first_attacker': '',
             'attacker_damage': 0,
             'defender_damage': 0,
             'attacker_is_crit': False,
-            'defender_is_crit': False
+            'defender_is_crit': False,
+            'attacker_is_hit': False,
+            'defender_is_hit': False,
+            'attacker_health_regen': 0,
+            'defender_health_regen': 0
         }
         
-        # 攻击者攻击防御者
-        attacker_attack = attacker_battle.get('attack', 0)
-        attacker_crit = attacker_battle.get('crit', 0)
-        defender_defense = defender_battle.get('defense', 0)
-        defender_crit_resist = defender_battle.get('crit_resist', 0)
-        attacker_level = attacker_battle.get('level', 1)
-        defender_level = defender_battle.get('level', 1)
+        # 1. 回合开始：生命回复
+        attacker_health_regen = attacker_battle.get('health_regen', 0)
+        defender_health_regen = defender_battle.get('health_regen', 0)
         
-        # 应用自定义属性加成
-        damage_boost = attacker_battle.get('damage_boost', 0)
-        damage_reduction = defender_battle.get('damage_reduction', 0)
+        if attacker_health_regen > 0:
+            attacker_battle['health'] = min(attacker_battle['max_health'], attacker_battle['health'] + attacker_health_regen)
+            round_data['attacker_health_regen'] = attacker_health_regen
         
-        # 计算伤害
-        damage, is_crit = calculate_damage(
-            attacker_attack, defender_defense, 
-            attacker_crit, defender_crit_resist,
-            attacker_level=attacker_level, defender_level=defender_level
-        )
+        if defender_health_regen > 0:
+            defender_battle['health'] = min(defender_battle['max_health'], defender_battle['health'] + defender_health_regen)
+            round_data['defender_health_regen'] = defender_health_regen
         
-        # 应用伤害加成和减益
-        damage = max(1, damage + damage_boost - damage_reduction)
+        # 2. 先手判定：基于agility属性
+        attacker_agility = attacker_battle.get('agility', 10)
+        defender_agility = defender_battle.get('agility', 10)
         
-        # 记录伤害和暴击信息
-        total_attacker_damage += damage
-        if is_crit:
-            attacker_crit_count += 1
-        round_data['attacker_damage'] = damage
-        round_data['attacker_is_crit'] = is_crit
+        # 先手判定逻辑：敏捷高的一方先攻击，相同则随机
+        if attacker_agility > defender_agility:
+            first_attacker = 'attacker'
+            second_attacker = 'defender'
+        elif defender_agility > attacker_agility:
+            first_attacker = 'defender'
+            second_attacker = 'attacker'
+        else:
+            # 敏捷相同，随机决定先手
+            first_attacker = random.choice(['attacker', 'defender'])
+            second_attacker = 'defender' if first_attacker == 'attacker' else 'attacker'
         
-        # 扣除防御者生命值
-        defender_battle['health'] -= damage
+        round_data['first_attacker'] = first_attacker
         
-        # 如果防御者已经死亡，结束战斗
-        if defender_battle['health'] <= 0:
-            round_data['attacker_health_after'] = attacker_battle['health']
-            round_data['defender_health_after'] = 0
-            round_history.append(round_data)
-            break
-        
-        # 防御者反击攻击者
-        defender_attack = defender_battle.get('attack', 0)
-        defender_crit = defender_battle.get('crit', 0)
-        attacker_defense = attacker_battle.get('defense', 0)
-        attacker_crit_resist = attacker_battle.get('crit_resist', 0)
-        
-        # 应用自定义属性加成
-        damage_boost = defender_battle.get('damage_boost', 0)
-        damage_reduction = attacker_battle.get('damage_reduction', 0)
-        
-        # 计算伤害
-        damage, is_crit = calculate_damage(
-            defender_attack, attacker_defense, 
-            defender_crit, attacker_crit_resist,
-            attacker_level=defender_level, defender_level=attacker_level
-        )
-        
-        # 应用伤害加成和减益
-        damage = max(1, damage + damage_boost - damage_reduction)
-        
-        # 记录伤害和暴击信息
-        total_defender_damage += damage
-        if is_crit:
-            defender_crit_count += 1
-        round_data['defender_damage'] = damage
-        round_data['defender_is_crit'] = is_crit
-        
-        # 扣除攻击者生命值
-        attacker_battle['health'] -= damage
+        # 3. 攻击顺序处理
+        for attacker_role in [first_attacker, second_attacker]:
+            if attacker_role == 'attacker':
+                # 攻击者攻击防御者
+                attacker = attacker_battle
+                defender = defender_battle
+                attacker_prefix = 'attacker'
+                defender_prefix = 'defender'
+            else:
+                # 防御者攻击攻击者
+                attacker = defender_battle
+                defender = attacker_battle
+                attacker_prefix = 'defender'
+                defender_prefix = 'attacker'
+            
+            # 获取攻击方和防御方属性
+            attacker_attack = attacker.get('attack', 0)
+            attacker_crit = attacker.get('crit', 0)
+            defender_defense = defender.get('defense', 0)
+            defender_crit_resist = defender.get('crit_resist', 0)
+            attacker_level = attacker.get('level', 1)
+            defender_level = defender.get('level', 1)
+            
+            # 计算伤害
+            damage_info = calculate_damage(
+                attacker_attack, defender_defense, 
+                attacker_crit, defender_crit_resist,
+                attacker_level=attacker_level, defender_level=defender_level,
+                attacker_attributes=attacker,
+                defender_attributes=defender
+            )
+            
+            # 获取最终伤害和暴击信息
+            damage = int(damage_info['final_damage'])
+            is_crit = damage_info['is_critical']
+            is_hit = damage_info['is_hit']
+            
+            # 记录伤害和暴击信息
+            if attacker_role == 'attacker':
+                total_attacker_damage += damage
+                if is_crit:
+                    attacker_crit_count += 1
+                if is_hit:
+                    attacker_hit_count += 1
+                round_data['attacker_damage'] = damage
+                round_data['attacker_is_crit'] = is_crit
+                round_data['attacker_is_hit'] = is_hit
+                round_data['attacker_damage_info'] = damage_info
+                
+                # 扣除防御者生命值
+                defender_battle['health'] -= damage
+            else:
+                total_defender_damage += damage
+                if is_crit:
+                    defender_crit_count += 1
+                if is_hit:
+                    defender_hit_count += 1
+                round_data['defender_damage'] = damage
+                round_data['defender_is_crit'] = is_crit
+                round_data['defender_is_hit'] = is_hit
+                round_data['defender_damage_info'] = damage_info
+                
+                # 扣除攻击者生命值
+                attacker_battle['health'] -= damage
+            
+            # 检查是否有角色死亡
+            if attacker_battle['health'] <= 0 or defender_battle['health'] <= 0:
+                break
         
         # 记录回合结束后的生命值
         round_data['attacker_health_after'] = max(0, attacker_battle['health'])
@@ -231,6 +294,10 @@ def fight_to_the_death(db_path, attacker_id, defender_id, max_rounds=1000):
         
         # 添加到战斗历史
         round_history.append(round_data)
+        
+        # 检查战斗是否结束
+        if attacker_battle['health'] <= 0 or defender_battle['health'] <= 0:
+            break
     
     # 确定胜利者
     if attacker_battle['health'] > 0 and defender_battle['health'] <= 0:
@@ -240,24 +307,36 @@ def fight_to_the_death(db_path, attacker_id, defender_id, max_rounds=1000):
     else:
         winner = '平局'
     
-    # 计算实际暴击率
+    # 计算实际暴击率和命中率
     attacker_actual_crit_rate = attacker_crit_count / rounds if rounds > 0 else 0
     defender_actual_crit_rate = defender_crit_count / rounds if rounds > 0 else 0
+    attacker_actual_hit_rate = attacker_hit_count / rounds if rounds > 0 else 0
+    defender_actual_hit_rate = defender_hit_count / rounds if rounds > 0 else 0
     
     return {
         'attacker': {
             'name': attacker_props.get('name', '未知攻击者'),
             'id': attacker_props.get('id', 'unknown'),
-            'initial_health': attacker_props['health'] + total_defender_damage,  # 还原初始生命值
-            'final_health': max(0, attacker_props['health']),
-            'custom_attributes': {k: v for k, v in attacker_props.items() if k not in ['name', 'id', 'health', 'attack', 'defense', 'crit', 'crit_resist', 'level']}
+            'level': attacker_props.get('level', 1),
+            'initial_health': attacker_props['health'],
+            'final_health': max(0, attacker_battle['health']),
+            'attack': attacker_props.get('attack', 0),
+            'defense': attacker_props.get('defense', 0),
+            'crit': attacker_props.get('crit', 0),
+            'crit_resist': attacker_props.get('crit_resist', 0),
+            'custom_attributes': {k: v for k, v in attacker_props.items() if k not in ['name', 'id', 'health', 'max_health', 'attack', 'defense', 'crit', 'crit_resist', 'level']}
         },
         'defender': {
             'name': defender_props.get('name', '未知防御者'),
             'id': defender_props.get('id', 'unknown'),
-            'initial_health': defender_props['health'] + total_attacker_damage,  # 还原初始生命值
-            'final_health': max(0, defender_props['health']),
-            'custom_attributes': {k: v for k, v in defender_props.items() if k not in ['name', 'id', 'health', 'attack', 'defense', 'crit', 'crit_resist', 'level']}
+            'level': defender_props.get('level', 1),
+            'initial_health': defender_props['health'],
+            'final_health': max(0, defender_battle['health']),
+            'attack': defender_props.get('attack', 0),
+            'defense': defender_props.get('defense', 0),
+            'crit': defender_props.get('crit', 0),
+            'crit_resist': defender_props.get('crit_resist', 0),
+            'custom_attributes': {k: v for k, v in defender_props.items() if k not in ['name', 'id', 'health', 'max_health', 'attack', 'defense', 'crit', 'crit_resist', 'level']}
         },
         'winner': winner,
         'rounds': rounds,
@@ -266,5 +345,7 @@ def fight_to_the_death(db_path, attacker_id, defender_id, max_rounds=1000):
         'total_defender_damage': total_defender_damage,
         'attacker_actual_crit_rate': attacker_actual_crit_rate,
         'defender_actual_crit_rate': defender_actual_crit_rate,
+        'attacker_actual_hit_rate': attacker_actual_hit_rate,
+        'defender_actual_hit_rate': defender_actual_hit_rate,
         'round_history': round_history
     }

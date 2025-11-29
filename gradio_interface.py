@@ -3,6 +3,11 @@ import json
 import os
 import pandas as pd
 
+# 设置Matplotlib非交互式后端，解决线程问题
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+
 from data.sqlite_handler import (
     init_db,
     get_next_available_id,
@@ -135,8 +140,7 @@ def get_characters_dataframe(search="", page=1, page_size=10):
             data.append([
                 character.id,
                 character.name,
-                character.level,
-                character.growth_curve_type
+                character.level
             ])
         
         return data
@@ -252,19 +256,8 @@ def refresh_list():
     return get_characters_dataframe(search=current_search, page=current_page_num, page_size=current_page_size)
 
 # 创建Gradio界面
-with gr.Blocks(title="数值系统操作界面") as demo:
-    gr.Markdown("# 游戏数值系统管理")
-    
-    # 初始化数据库按钮
-    with gr.Row():
-        init_btn = gr.Button("初始化数据库")
-        init_output = gr.Textbox(label="初始化结果")
-    
-    init_btn.click(
-        fn=lambda: "数据库已初始化",
-        inputs=[],
-        outputs=init_output
-    )
+with gr.Blocks(title="🎮 平衡引擎 Balance Engine") as demo:
+    gr.Markdown("# 🎮 平衡引擎 Balance Engine")
     
     # 角色管理部分（查看、修改、删除）- 放在第一部分
     with gr.Tab("角色管理"):
@@ -280,8 +273,8 @@ with gr.Blocks(title="数值系统操作界面") as demo:
                 
                 # 使用DataFrame展示角色列表
                 characters_df = gr.DataFrame(
-                    headers=["ID", "名称", "等级", "成长曲线类型"],
-                    datatype=["number", "str", "number", "str"],
+                    headers=["ID", "名称", "等级"],
+                    datatype=["number", "str", "number"],
                     value=[],  # 初始为空，后续通过demo.load填充
                     interactive=False,
                     label="角色列表"
@@ -301,6 +294,17 @@ with gr.Blocks(title="数值系统操作界面") as demo:
                 
                 # 刷新按钮
                 refresh_btn = gr.Button("刷新列表")
+                
+                # 初始化数据库按钮
+                gr.Markdown("⚠️ **提示：只有第一次启动项目时需要初始化数据库**")
+                init_btn = gr.Button("初始化数据库")
+                init_output = gr.Textbox(label="初始化结果")
+                
+                init_btn.click(
+                    fn=lambda: "数据库已初始化",
+                    inputs=[],
+                    outputs=init_output
+                )
             
             # 右侧：角色详情和修改合并
             with gr.Column(scale=1):
@@ -309,19 +313,24 @@ with gr.Blocks(title="数值系统操作界面") as demo:
                 # 角色ID（只读）
                 char_id_display = gr.Number(label="角色ID", minimum=1, interactive=False)
                 
-                # 角色基本信息编辑表单 - 默认布局
-                char_name_edit = gr.Textbox(label="角色名称", placeholder="输入角色名称")
-                char_level_edit = gr.Number(label="角色等级", value=1, minimum=1)
-                char_growth_type_edit = gr.Dropdown(
-                    choices=["linear", "exponential", "logarithmic"],
-                    label="成长曲线类型",
-                    value="linear"
-                )
-                char_growth_params_edit = gr.Textbox(
-                    label="成长曲线参数 (JSON格式)",
-                    placeholder='例如: {"base": 10, "factor": 2}',
-                    value="{}"
-                )
+                # 角色基本信息编辑表单 - 紧凑布局
+                with gr.Row():
+                    char_name_edit = gr.Textbox(label="角色名称", placeholder="输入角色名称", scale=2)
+                    char_level_edit = gr.Number(label="角色等级", value=1, minimum=1, scale=1)
+                
+                with gr.Row():
+                    char_growth_type_edit = gr.Dropdown(
+                        choices=["linear", "exponential", "logarithmic"],
+                        label="成长曲线类型",
+                        value="linear",
+                        scale=1
+                    )
+                    char_growth_params_edit = gr.Textbox(
+                        label="成长曲线参数 (JSON格式)",
+                        placeholder='例如: {"base": 10, "factor": 2}',
+                        value="{}",
+                        scale=2
+                    )
                 
                 # 角色属性表格显示（可编辑）
                 gr.Markdown("#### 角色属性（可编辑）")
@@ -627,7 +636,7 @@ with gr.Blocks(title="数值系统操作界面") as demo:
                         char_id,              # 角色ID（只读）
                         str(row_data[1]),     # 角色名称
                         int(row_data[2]),     # 角色等级
-                        str(row_data[3]),     # 成长曲线类型
+                        "linear",            # 成长曲线类型（默认值）
                         "{}",                # 成长曲线参数（默认值）
                         attributes_data       # 角色属性表格数据
                     ]
@@ -669,6 +678,7 @@ with gr.Blocks(title="数值系统操作界面") as demo:
                     # 更新角色基本信息
                     character.name = name
                     character.level = level
+                    # 保留成长曲线类型和参数作为默认值
                     character.growth_curve_type = growth_type
                     character.growth_curve_params = growth_params
                     
@@ -785,6 +795,540 @@ with gr.Blocks(title="数值系统操作界面") as demo:
             outputs=characters_df
         )
     
+    # 成长曲线参数计算器
+    with gr.Tab("成长曲线参数计算器"):
+        gr.Markdown("## 成长曲线参数计算器")
+        gr.Markdown("通过输入两个等级和对应的属性值，自动计算成长曲线参数")
+        
+        # 曲线类型选择
+        curve_type = gr.Dropdown(
+            choices=["linear", "exponential", "logarithmic", "power", "sigmoid", "hybrid"],
+            label="成长曲线类型",
+            value="linear"
+        )
+        
+        # 输入两个点
+        with gr.Row():
+            with gr.Column():
+                gr.Markdown("### 点1")
+                level1 = gr.Number(label="等级1", value=1, minimum=1)
+                value1 = gr.Number(label="属性值1", value=10, minimum=0)
+            
+            with gr.Column():
+                gr.Markdown("### 点2")
+                level2 = gr.Number(label="等级2", value=100, minimum=1)
+                value2 = gr.Number(label="属性值2", value=1000, minimum=0)
+        
+        # 计算按钮
+        calculate_btn = gr.Button("计算参数")
+        
+        # 结果显示
+        result_params = gr.Textbox(
+            label="计算结果 (JSON格式)",
+            placeholder="计算出的参数将显示在这里",
+            interactive=False
+        )
+        
+        # 计算结果的说明
+        result_explanation = gr.Markdown("### 参数说明")
+        
+        # 计算参数的函数
+        def calculate_curve_params(curve_type, l1, v1, l2, v2):
+            import math
+            
+            # 确保输入值有效
+            if l1 <= 0 or l2 <= 0 or l1 == l2:
+                return "{} (错误：等级必须为正整数且不相等)", "### 参数说明\n输入无效：等级必须为正整数且不相等"
+            
+            # 确保level1 < level2
+            if l1 > l2:
+                l1, l2 = l2, l1
+                v1, v2 = v2, v1
+            
+            try:
+                params = {}
+                explanation = f"### 参数说明\n曲线类型：{curve_type}\n"
+                
+                if curve_type == "linear":
+                    # 线性：y = base_value * level * coefficient
+                    # 假设base_value=10（与系统默认一致）
+                    base_value = 10
+                    coefficient = (v2 - v1) / (base_value * (l2 - l1))
+                    params = {"coefficient": round(coefficient, 4)}
+                    explanation += f"- coefficient: {round(coefficient, 4)}（成长系数）\n"
+                    explanation += f"公式：y = {base_value} * level * {round(coefficient, 4)}"
+                
+                elif curve_type == "exponential":
+                    # 指数：y = base_value * (level ** exponent)
+                    base_value = 10
+                    # 解方程组：
+                    # v1 = base_value * (l1 ** exponent)
+                    # v2 = base_value * (l2 ** exponent)
+                    # 相除得：v2/v1 = (l2/l1) ** exponent
+                    # 取对数得：ln(v2/v1) = exponent * ln(l2/l1)
+                    exponent = math.log(v2/v1) / math.log(l2/l1)
+                    params = {"exponent": round(exponent, 4)}
+                    explanation += f"- exponent: {round(exponent, 4)}（指数）\n"
+                    explanation += f"公式：y = {base_value} * (level ** {round(exponent, 4)})"
+                
+                elif curve_type == "logarithmic":
+                    # 对数：y = base_value * math.log(level + 1, base)
+                    base_value = 10
+                    # 解方程组：
+                    # v1 = base_value * log(1+l1, base)
+                    # v2 = base_value * log(1+l2, base)
+                    # 相除得：v2/v1 = log(1+l2, base) / log(1+l1, base)
+                    # 换底公式：log(a,b) = ln(a)/ln(b)
+                    # 所以：v2/v1 = ln(1+l2)/ln(base) / (ln(1+l1)/ln(base)) = ln(1+l2)/ln(1+l1)
+                    # 这说明对数曲线无法通过两个点唯一确定base参数
+                    # 我们使用默认base=e，并调整base_value来拟合
+                    log_ratio = math.log(1+l2) / math.log(1+l1)
+                    if log_ratio != 0:
+                        adjusted_base_value = v1 / math.log(1+l1)
+                        params = {"base": round(math.e, 4)}
+                        explanation += f"- base: {round(math.e, 4)}（对数底数）\n"
+                        explanation += f"公式：y = {round(adjusted_base_value, 4)} * log(level + 1, e)\n"
+                        explanation += f"注意：对数曲线通过调整base_value来拟合，base参数固定为e"
+                    else:
+                        params = {"base": 2.0}
+                        explanation += f"- base: 2.0（对数底数）\n"
+                        explanation += f"公式：y = {base_value} * log(level + 1, 2)\n"
+                        explanation += f"注意：无法精确拟合，使用默认参数"
+                
+                elif curve_type == "power":
+                    # 幂函数：y = base_value * (scaling * level) ** exponent
+                    base_value = 10
+                    # 假设scaling=1，解exponent
+                    exponent = math.log(v2/v1) / math.log(l2/l1)
+                    # 然后计算scaling
+                    scaling = (v1 / base_value) ** (1/exponent) / l1
+                    params = {"exponent": round(exponent, 4), "scaling": round(scaling, 4)}
+                    explanation += f"- exponent: {round(exponent, 4)}（指数）\n"
+                    explanation += f"- scaling: {round(scaling, 4)}（缩放系数）\n"
+                    explanation += f"公式：y = {base_value} * ({round(scaling, 4)} * level) ** {round(exponent, 4)}"
+                
+                elif curve_type == "sigmoid":
+                    # S形：y = base_value / (1 + math.exp(-steepness * (level - midpoint)))
+                    # 假设base_value=1000（根据v2的大小调整）
+                    base_value = max(v2 * 1.1, 1000)  # 确保最大值接近v2
+                    # 解方程组：
+                    # v1 = base_value / (1 + e^(-s*(l1 - m)))
+                    # v2 = base_value / (1 + e^(-s*(l2 - m)))
+                    # 简化：
+                    # 1 + e^(-s*(l1 - m)) = base_value / v1
+                    # 1 + e^(-s*(l2 - m)) = base_value / v2
+                    # 令：
+                    # a = base_value / v1 - 1
+                    # b = base_value / v2 - 1
+                    # 则：
+                    # e^(-s*(l1 - m)) = a
+                    # e^(-s*(l2 - m)) = b
+                    # 取对数：
+                    # -s*(l1 - m) = ln(a)
+                    # -s*(l2 - m) = ln(b)
+                    # 解方程组得：
+                    # s = (ln(b) - ln(a)) / (l1 - l2)
+                    # m = l1 + ln(a) / s
+                    a = base_value / v1 - 1
+                    b = base_value / v2 - 1
+                    
+                    if a > 0 and b > 0:
+                        steepness = (math.log(b) - math.log(a)) / (l1 - l2)
+                        midpoint = l1 + math.log(a) / steepness
+                        params = {"midpoint": round(midpoint, 2), "steepness": round(steepness, 4)}
+                        explanation += f"- midpoint: {round(midpoint, 2)}（曲线中点等级）\n"
+                        explanation += f"- steepness: {round(steepness, 4)}（曲线陡峭程度）\n"
+                        explanation += f"公式：y = {base_value} / (1 + e^(-{round(steepness, 4)} * (level - {round(midpoint, 2)})))\n"
+                    else:
+                        params = {"midpoint": round((l1 + l2)/2, 2), "steepness": 0.1}
+                        explanation += f"- midpoint: {round((l1 + l2)/2, 2)}（曲线中点等级，默认）\n"
+                        explanation += f"- steepness: 0.1（曲线陡峭程度，默认）\n"
+                        explanation += f"公式：y = {base_value} / (1 + e^(-0.1 * (level - {round((l1 + l2)/2, 2)})))\n"
+                        explanation += f"注意：无法精确拟合，使用默认参数"
+                
+                elif curve_type == "hybrid":
+                    # 混合：前期快速，后期平缓
+                    # y = base_value * level * early_coef (level < transition_level)
+                    # y = early_value + (base_value * additional_levels * late_coef) (level >= transition_level)
+                    base_value = 10
+                    transition_level = l1 + (l2 - l1) * 0.3  # 过渡点设为总区间的30%
+                    transition_level = round(transition_level)
+                    
+                    # 前期：从l1到transition_level
+                    early_coef = (v1 * 0.8) / (base_value * l1)  # 前期系数
+                    # 后期：从transition_level到l2
+                    early_value = base_value * transition_level * early_coef
+                    additional_levels = l2 - transition_level
+                    if additional_levels > 0:
+                        late_coef = (v2 - early_value) / (base_value * additional_levels)
+                    else:
+                        late_coef = early_coef * 0.5
+                    
+                    params = {
+                        "early_coef": round(early_coef, 4),
+                        "late_coef": round(late_coef, 4),
+                        "transition_level": transition_level
+                    }
+                    explanation += f"- early_coef: {round(early_coef, 4)}（前期成长系数）\n"
+                    explanation += f"- late_coef: {round(late_coef, 4)}（后期成长系数）\n"
+                    explanation += f"- transition_level: {transition_level}（过渡等级）\n"
+                    explanation += f"公式：\n"
+                    explanation += f"- 当 level < {transition_level}: y = {base_value} * level * {round(early_coef, 4)}\n"
+                    explanation += f"- 当 level >= {transition_level}: y = {round(early_value, 2)} + ({base_value} * (level - {transition_level}) * {round(late_coef, 4)})"
+                
+                # 转换为JSON字符串
+                import json
+                params_str = json.dumps(params, ensure_ascii=False, indent=2)
+                
+                return params_str, explanation
+            
+            except Exception as e:
+                return f"{{}} (计算错误：{str(e)})", f"### 参数说明\n计算错误：{str(e)}"
+        
+        # 绑定计算按钮
+        calculate_btn.click(
+            fn=calculate_curve_params,
+            inputs=[curve_type, level1, value1, level2, value2],
+            outputs=[result_params, result_explanation]
+        )
+    
+    # 战斗模拟模块
+    with gr.Tab("战斗模拟"):
+        gr.Markdown("## 战斗模拟")
+        gr.Markdown("模拟两个角色之间的战斗，支持单次战斗统计和死斗模拟")
+        
+        # 获取所有角色的函数
+        def get_all_character_options():
+            from data.sqlite_handler import load_all_characters
+            characters = load_all_characters()
+            return [(char.name, str(char.id)) for char in characters]
+        
+        # 角色选择
+        with gr.Row():
+            attacker_selector = gr.Dropdown(
+                choices=get_all_character_options(),
+                label="攻击方角色",
+                value=None
+            )
+            defender_selector = gr.Dropdown(
+                choices=get_all_character_options(),
+                label="防御方角色",
+                value=None
+            )
+        
+        # 刷新角色列表按钮
+        refresh_characters_btn = gr.Button("刷新角色列表")
+        
+        # 战斗模式选择
+        battle_mode = gr.Radio(
+            choices=["单次战斗统计", "死斗模拟"],
+            label="战斗模式",
+            value="单次战斗统计"
+        )
+        
+        # 战斗参数设置
+        with gr.Row():
+            simulate_count = gr.Number(
+                label="模拟次数",
+                value=100,
+                minimum=1,
+                maximum=10000,
+                step=1
+            )
+            max_rounds = gr.Number(
+                label="最大回合数",
+                value=1000,
+                minimum=10,
+                maximum=10000,
+                step=10
+            )
+        
+        # 执行战斗模拟按钮
+        battle_btn = gr.Button("开始战斗模拟")
+        
+        # 战斗结果展示
+        battle_result = gr.Markdown("### 战斗结果")
+        
+        # 战斗历史记录 - 使用固定列
+        battle_history = gr.DataFrame(
+            headers=["回合", "攻击方伤害", "攻击方暴击", "防御方伤害", "防御方暴击", "攻击方生命值", "防御方生命值"],
+            datatype=["number", "number", "bool", "number", "bool", "number", "number"],
+            value=[],
+            interactive=False,
+            label="战斗历史记录"
+        )
+        
+        # 战斗模拟函数
+        def run_battle_simulation(attacker_id, defender_id, mode, count, rounds):
+            import json
+            from logic.battle import battle_between_characters, fight_to_the_death
+            from data.sqlite_handler import load_character
+            
+            # 确保角色ID有效
+            if not attacker_id or not defender_id:
+                return "请选择攻击方和防御方角色", []
+            
+            try:
+                attacker = load_character(character_id=int(attacker_id))
+                defender = load_character(character_id=int(defender_id))
+                
+                if not attacker or not defender:
+                    return "无法加载选择的角色", []
+                
+                if mode == "单次战斗统计":
+                    # 执行单次战斗统计
+                    result = battle_between_characters(
+                        db_path="./data/character.db",
+                        attacker_id=int(attacker_id),
+                        defender_id=int(defender_id),
+                        simulate_count=int(count)
+                    )
+                    
+                    if result:
+                        # 获取攻击方和防御方的详细属性
+                        attacker = result['attacker']
+                        defender = result['defender']
+                        
+                        # 生成战斗结果报告
+                        report = f"## 🎮 战斗模拟结果\n\n"
+                        
+                        # 角色信息卡片
+                        report += f"### 📋 角色信息\n"
+                        report += f"<div style='display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 10px 0;'>\n"
+                        report += f"<div style='background-color: #f0f8ff; padding: 15px; border-radius: 8px; border-left: 4px solid #1e90ff;'>\n"
+                        report += f"<strong>⚔️ 攻击方</strong>: {attacker['name']} (等级 {attacker['level']})\n\n"
+                        report += f"<strong>基础属性</strong>:\n"
+                        report += f"- 攻击力: {attacker.get('attack', 0)}\n"
+                        report += f"- 防御力: {attacker.get('defense', 0)}\n"
+                        report += f"- 暴击: {attacker.get('crit', 0)}\n"
+                        report += f"- 暴抗: {attacker.get('crit_resist', 0)}\n\n"
+                        report += f"<strong>高级属性</strong>:\n"
+                        report += f"- 命中: {attacker.get('accuracy', 0)}\n"
+                        report += f"- 闪避: {attacker.get('evasion', 0)}\n"
+                        report += f"- 伤害加成: {attacker.get('damage_boost', 0)}%\n"
+                        report += f"- 伤害减免: {attacker.get('damage_reduction', 0)}%\n"
+                        report += f"- 敏捷: {attacker.get('agility', 0)}\n"
+                        report += f"- 生命回复: {attacker.get('health_regen', 0)}\n"
+                        report += f"</div>\n"
+                        
+                        report += f"<div style='background-color: #fff0f5; padding: 15px; border-radius: 8px; border-left: 4px solid #ff69b4;'>\n"
+                        report += f"<strong>🛡️ 防御方</strong>: {defender['name']} (等级 {defender['level']})\n\n"
+                        report += f"<strong>基础属性</strong>:\n"
+                        report += f"- 攻击力: {defender.get('attack', 0)}\n"
+                        report += f"- 防御力: {defender.get('defense', 0)}\n"
+                        report += f"- 暴击: {defender.get('crit', 0)}\n"
+                        report += f"- 暴抗: {defender.get('crit_resist', 0)}\n\n"
+                        report += f"<strong>高级属性</strong>:\n"
+                        report += f"- 命中: {defender.get('accuracy', 0)}\n"
+                        report += f"- 闪避: {defender.get('evasion', 0)}\n"
+                        report += f"- 伤害加成: {defender.get('damage_boost', 0)}%\n"
+                        report += f"- 伤害减免: {defender.get('damage_reduction', 0)}%\n"
+                        report += f"- 敏捷: {defender.get('agility', 0)}\n"
+                        report += f"- 生命回复: {defender.get('health_regen', 0)}\n"
+                        report += f"</div>\n"
+                        report += f"</div>\n\n"
+                        
+                        # 模拟结果统计
+                        report += f"### 📊 模拟结果统计\n"
+                        report += f"<div style='background-color: #f5f5f5; padding: 15px; border-radius: 8px; margin: 10px 0;'>\n"
+                        report += f"- **模拟次数**: {result['simulate_count']}\n"
+                        report += f"- **平均伤害**: {result['average_damage']:.2f}\n"
+                        report += f"- **实际暴击率**: {result['actual_crit_rate']:.2%}\n"
+                        report += f"- **预期暴击率**: {result['expected_crit_rate']:.2%}\n"
+                        if 'actual_hit_rate' in result:
+                            report += f"- **实际命中率**: {result['actual_hit_rate']:.2%}\n"
+                        report += f"</div>\n\n"
+                        
+                        # 属性计算过程说明
+                        report += f"### 🔢 属性计算过程\n"
+                        report += f"<div style='background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin: 10px 0;'>\n"
+                        report += f"<strong>1. 基础伤害计算</strong>:\n"
+                        report += f"   公式: 攻击 * (攻击 / (攻击 + 防御 * 0.5))\n"
+                        report += f"   示例: {attacker.get('attack', 0)} * ({attacker.get('attack', 0)} / ({attacker.get('attack', 0)} + {defender.get('defense', 0)} * 0.5))\n\n"
+                        
+                        report += f"<strong>2. 等级差异系数</strong>:\n"
+                        report += f"   公式: 1 + min(max(等级差 * 0.05, -0.5), 0.5)\n"
+                        level_diff = attacker.get('level', 1) - defender.get('level', 1)
+                        report += f"   示例: 1 + min(max({level_diff} * 0.05, -0.5), 0.5) = {1 + min(max(level_diff * 0.05, -0.5), 0.5):.2f}\n\n"
+                        
+                        report += f"<strong>3. 暴击率计算</strong>:\n"
+                        report += f"   公式: max(攻击方暴击 - 受击方暴抗, 0) / 100\n"
+                        report += f"   示例: max({attacker.get('crit', 0)} - {defender.get('crit_resist', 0)}, 0) / 100 = {result['expected_crit_rate']:.2%}\n\n"
+                        
+                        report += f"<strong>4. 命中率计算</strong>:\n"
+                        report += f"   公式: max(min((攻击方命中 - 受击方闪避) / 100, 0.95), 0.05)\n"
+                        accuracy = attacker.get('accuracy', 0)
+                        evasion = defender.get('evasion', 0)
+                        hit_rate = max(min((accuracy - evasion) / 100, 0.95), 0.05)
+                        report += f"   示例: max(min(({accuracy} - {evasion}) / 100, 0.95), 0.05) = {hit_rate:.2%}\n\n"
+                        
+                        report += f"<strong>5. 伤害加成与减免</strong>:\n"
+                        report += f"   公式: 最终伤害 = 伤害 * (1 + 伤害加成%) * (1 - 伤害减免%)\n"
+                        report += f"   示例: 伤害 * (1 + {attacker.get('damage_boost', 0)}%) * (1 - {defender.get('damage_reduction', 0)}%)\n\n"
+                        
+                        report += f"<strong>6. 最终伤害</strong>:\n"
+                        report += f"   公式: max(最终伤害, 1) (确保至少造成1点伤害)\n"
+                        report += f"</div>\n\n"
+                        
+                        # 生成单次战斗统计的表格数据
+                        history_data = []
+                        # 只显示前100条记录，避免表格过大
+                        for i, battle_info in enumerate(result['battle_results'][:100]):
+                            # 构建适合固定列的数据
+                            row = [
+                                i + 1,  # 回合/序号
+                                battle_info['damage'],  # 攻击方伤害
+                                battle_info['is_crit'],  # 攻击方暴击
+                                0,  # 防御方伤害（单次模拟没有防御方反击）
+                                False,  # 防御方暴击（单次模拟没有防御方反击）
+                                100,  # 攻击方生命值（单次模拟不涉及生命值变化）
+                                100 - battle_info['damage']  # 防御方生命值（模拟值）
+                            ]
+                            history_data.append(row)
+                        
+                        return report, history_data
+                    else:
+                        return "战斗模拟失败", []
+                
+                else:  # 死斗模拟
+                    # 执行死斗模拟
+                    result = fight_to_the_death(
+                        db_path="./data/character.db",
+                        attacker_id=int(attacker_id),
+                        defender_id=int(defender_id),
+                        max_rounds=int(rounds)
+                    )
+                    
+                    if result:
+                        # 获取攻击方和防御方的详细信息
+                        attacker = result['attacker']
+                        defender = result['defender']
+                        
+                        # 生成战斗结果报告
+                        report = f"## ⚔️ 死斗模拟结果\n\n"
+                        
+                        # 战斗结果概览
+                        report += f"### 🏆 战斗结果\n"
+                        report += f"<div style='background-color: #{'#d4edda' if result['winner'] == attacker['name'] else '#f8d7da' if result['winner'] == defender['name'] else '#fff3cd'}; padding: 15px; border-radius: 8px; margin: 10px 0; border: 1px solid {'#c3e6cb' if result['winner'] == attacker['name'] else '#f5c6cb' if result['winner'] == defender['name'] else '#ffeeba'};'>\n"
+                        report += f"<strong>胜利者</strong>: {result['winner']}\n\n"
+                        report += f"<strong>战斗回合数</strong>: {result['rounds']}\n"
+                        if result['max_rounds_reached']:
+                            report += f"<strong>注意</strong>: 已达到最大回合数限制\n\n"
+                        
+                        report += f"<strong>攻击方</strong>: {attacker['name']}\n"
+                        report += f"   - 初始生命值: {attacker['initial_health']}\n"
+                        report += f"   - 最终生命值: {attacker['final_health']}\n"
+                        report += f"   - 总伤害: {result['total_attacker_damage']}\n"
+                        report += f"   - 暴击率: {result['attacker_actual_crit_rate']:.2%}\n\n"
+                        
+                        report += f"<strong>防御方</strong>: {defender['name']}\n"
+                        report += f"   - 初始生命值: {defender['initial_health']}\n"
+                        report += f"   - 最终生命值: {defender['final_health']}\n"
+                        report += f"   - 总伤害: {result['total_defender_damage']}\n"
+                        report += f"   - 暴击率: {result['defender_actual_crit_rate']:.2%}\n"
+                        report += f"</div>\n\n"
+                        
+                        # 角色属性信息
+                        report += f"### 📋 角色属性\n"
+                        report += f"<div style='display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 10px 0;'>\n"
+                        report += f"<div style='background-color: #f0f8ff; padding: 15px; border-radius: 8px; border-left: 4px solid #1e90ff;'>\n"
+                        report += f"<strong>⚔️ {attacker['name']}</strong> (等级 {attacker.get('level', 1)})\n\n"
+                        report += f"<strong>基础属性</strong>:\n"
+                        report += f"- 攻击力: {attacker.get('attack', 0)}\n"
+                        report += f"- 防御力: {attacker.get('defense', 0)}\n"
+                        report += f"- 暴击: {attacker.get('crit', 0)}\n"
+                        report += f"- 暴抗: {attacker.get('crit_resist', 0)}\n\n"
+                        report += f"<strong>高级属性</strong>:\n"
+                        report += f"- 命中: {attacker['custom_attributes'].get('accuracy', 0)}\n"
+                        report += f"- 闪避: {attacker['custom_attributes'].get('evasion', 0)}\n"
+                        report += f"- 伤害加成: {attacker['custom_attributes'].get('damage_boost', 0)}%\n"
+                        report += f"- 伤害减免: {attacker['custom_attributes'].get('damage_reduction', 0)}%\n"
+                        report += f"- 敏捷: {attacker['custom_attributes'].get('agility', 0)}\n"
+                        report += f"- 生命回复: {attacker['custom_attributes'].get('health_regen', 0)}\n"
+                        report += f"</div>\n"
+                        
+                        report += f"<div style='background-color: #fff0f5; padding: 15px; border-radius: 8px; border-left: 4px solid #ff69b4;'>\n"
+                        report += f"<strong>🛡️ {defender['name']}</strong> (等级 {defender.get('level', 1)})\n\n"
+                        report += f"<strong>基础属性</strong>:\n"
+                        report += f"- 攻击力: {defender.get('attack', 0)}\n"
+                        report += f"- 防御力: {defender.get('defense', 0)}\n"
+                        report += f"- 暴击: {defender.get('crit', 0)}\n"
+                        report += f"- 暴抗: {defender.get('crit_resist', 0)}\n\n"
+                        report += f"<strong>高级属性</strong>:\n"
+                        report += f"- 命中: {defender['custom_attributes'].get('accuracy', 0)}\n"
+                        report += f"- 闪避: {defender['custom_attributes'].get('evasion', 0)}\n"
+                        report += f"- 伤害加成: {defender['custom_attributes'].get('damage_boost', 0)}%\n"
+                        report += f"- 伤害减免: {defender['custom_attributes'].get('damage_reduction', 0)}%\n"
+                        report += f"- 敏捷: {defender['custom_attributes'].get('agility', 0)}\n"
+                        report += f"- 生命回复: {defender['custom_attributes'].get('health_regen', 0)}\n"
+                        report += f"</div>\n"
+                        report += f"</div>\n\n"
+                        
+                        # 战斗统计信息
+                        report += f"### 📊 战斗统计\n"
+                        report += f"<div style='background-color: #f5f5f5; padding: 15px; border-radius: 8px; margin: 10px 0;'>\n"
+                        report += f"<strong>总伤害统计</strong>:\n"
+                        report += f"- 攻击方总伤害: {result['total_attacker_damage']}\n"
+                        report += f"- 防御方总伤害: {result['total_defender_damage']}\n\n"
+                        report += f"<strong>暴击率统计</strong>:\n"
+                        report += f"- 攻击方暴击率: {result['attacker_actual_crit_rate']:.2%}\n"
+                        report += f"- 防御方暴击率: {result['defender_actual_crit_rate']:.2%}\n\n"
+                        
+                        if 'attacker_actual_hit_rate' in result:
+                            report += f"<strong>命中率统计</strong>:\n"
+                            report += f"- 攻击方命中率: {result['attacker_actual_hit_rate']:.2%}\n"
+                            report += f"- 防御方命中率: {result['defender_actual_hit_rate']:.2%}\n\n"
+                        report += f"</div>\n\n"
+                        
+                        # 战斗流程说明
+                        report += f"### 🔄 战斗流程\n"
+                        report += f"<div style='background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin: 10px 0;'>\n"
+                        report += f"1. **回合开始**: 双方根据生命回复属性回复生命值\n"
+                        report += f"2. **先手判定**: 基于敏捷属性决定攻击顺序\n"
+                        report += f"3. **攻击阶段**: 双方依次攻击，包含命中/闪避判定\n"
+                        report += f"4. **伤害计算**: 基于攻击力、防御力、等级差异等属性\n"
+                        report += f"5. **暴击判定**: 根据暴击率决定是否造成暴击伤害\n"
+                        report += f"6. **生命值更新**: 扣除伤害，检查战斗结束条件\n"
+                        report += f"</div>\n\n"
+                        
+                        # 生成战斗历史记录 - 只包含固定列
+                        history_data = []
+                        for round_info in result['round_history']:
+                            # 只构建固定列的数据，避免嵌套对象
+                            row = [
+                                round_info['round'],
+                                round_info['attacker_damage'],
+                                round_info['attacker_is_crit'],
+                                round_info.get('defender_damage', 0),
+                                round_info.get('defender_is_crit', False),
+                                round_info['attacker_health_after'],
+                                round_info['defender_health_after']
+                            ]
+                            history_data.append(row)
+                        
+                        return report, history_data
+                    else:
+                        return "死斗模拟失败", []
+            
+            except Exception as e:
+                import traceback
+                error_msg = f"战斗模拟出错: {str(e)}\n{traceback.format_exc()}"
+                return error_msg, []
+        
+        # 绑定按钮事件
+        battle_btn.click(
+            fn=run_battle_simulation,
+            inputs=[attacker_selector, defender_selector, battle_mode, simulate_count, max_rounds],
+            outputs=[battle_result, battle_history]
+        )
+        
+        # 刷新角色列表
+        refresh_characters_btn.click(
+            fn=lambda: [gr.Dropdown(choices=get_all_character_options()), gr.Dropdown(choices=get_all_character_options())],
+            inputs=[],
+            outputs=[attacker_selector, defender_selector]
+        )
+    
     # 页面加载时刷新角色列表
     demo.load(
         fn=get_characters_dataframe,
@@ -798,5 +1342,5 @@ if __name__ == "__main__":
     demo.launch(
         share=False,
         server_name="localhost",
-        server_port=7873
+        server_port=7861
     )
